@@ -186,7 +186,7 @@ def test_watchdog_runs_inside_task(monkeypatch, tmp_path):
     assert captured["watchdog"].stopped is True
     assert captured["ibc"].terminated is True
     assert captured["ibc"].twsVersion == 1045
-    assert captured["watchdog_kwargs"]["account"] == "DU1234567"
+    assert captured["watchdog_kwargs"].get("account", "") == ""
     assert captured["watchdog_kwargs"]["raiseSyncErrors"] is True
 
 
@@ -194,7 +194,7 @@ def test_direct_connection_requires_complete_startup_sync(monkeypatch, tmp_path)
     captured, error = _run_start(monkeypatch, tmp_path, without_ibc=True)
 
     assert error is None
-    assert captured["connect_kwargs"]["account"] == "DU1234567"
+    assert captured["connect_kwargs"].get("account", "") == ""
     assert captured["connect_kwargs"]["raiseSyncErrors"] is True
 
 
