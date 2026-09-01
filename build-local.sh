@@ -50,6 +50,10 @@ echo ">> Platform     : $PLATFORM  (host: $host_arch)"
 
 # ---- 1. build the wheel ------------------------------------------------------
 echo ">> [1/3] Building Python wheel (uv build)"
+# Clean stale artifacts first: the Dockerfile globs dist/thetagang-*.whl, and
+# wheels from a previous version left in dist/ make uv reject the install
+# ("conflicting URLs for package"). A clean checkout (as in CI) never has them.
+rm -rf dist
 uv build
 
 # ---- 2. extract TWS ----------------------------------------------------------
