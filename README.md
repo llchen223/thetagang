@@ -464,6 +464,14 @@ path = "data/thetagang.db"
 For Docker runs, make sure the `data/` directory is inside the mounted config
 volume so the database persists between runs.
 
+## Building the image locally
+
+If you want to build the Docker image from source instead of using the prebuilt
+image, run `./build-local.sh` from the repository root — it builds the wheel,
+extracts IBKR TWS, and runs `docker build`. See [BUILD.md](./BUILD.md) for the
+full flow and [COLIMA.md](./COLIMA.md) for running a headless Docker daemon on
+macOS (Colima).
+
 ## Up and running with Docker
 
 My preferred way for running ThetaGang is to use a cronjob to execute Docker
