@@ -139,10 +139,12 @@ def start(
         watchdog = Watchdog(
             ibc,
             ib,
-            account=config.runtime.account.number,
-            # IB can otherwise emit connectedEvent after startup position or
-            # account synchronization times out, leaving empty caches that look
-            # indistinguishable from a genuinely empty account.
+            # Deliberately pass no account: ib_async then only syncs account
+            # updates during connect for single-account setups (auto-select).
+            # Secondary/linked accounts never send accountDownloadEnd, so an
+            # explicit account here would always time out and, with
+            # raiseSyncErrors enabled, abort the connect. Account updates are
+            # subscribed after connect via subscribe_account_updates.
             raiseSyncErrors=True,
             probeContract=probeContract,
             **watchdog_config.to_dict(),
@@ -203,7 +205,8 @@ def start(
             watchdog_config.port,
             clientId=watchdog_config.clientId,
             timeout=watchdog_config.probeTimeout,
-            account=config.runtime.account.number,
+            # See the watchdog path above: no account means no account-updates
+            # sync at connect; account updates are subscribed after connect.
             raiseSyncErrors=True,
         )
         cast(_IBRunner, ib).run(completion_future)

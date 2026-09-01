@@ -140,6 +140,12 @@ async def test_refresh_account_rejects_not_ready_snapshot(ibkr, mock_ib):
         await ibkr.refresh_account("ACC123")
 
 
+async def test_subscribe_account_updates_sends_raw_subscribe(ibkr, mock_ib):
+    ibkr.subscribe_account_updates("ACC123")
+
+    mock_ib.client.reqAccountUpdates.assert_called_once_with(True, "ACC123")
+
+
 async def test_cached_account_value_prefers_empty_model_base_aggregate(ibkr, mock_ib):
     mock_ib.accountValues.return_value = [
         AccountValue("ACC123", "TotalCashValue", "400", "BASE", "growth"),

@@ -97,6 +97,17 @@ class IBKR:
             ).lower() in {"false", "0"}:
                 raise RuntimeError("IBKR account snapshot is not ready")
 
+    def subscribe_account_updates(self, account: str) -> None:
+        """Subscribe to account updates without waiting for accountDownloadEnd.
+
+        Secondary/linked IBKR accounts deliver account values but never send
+        accountDownloadEnd, so awaiting reqAccountUpdatesAsync would wait
+        forever. The raw subscribe still starts the accountValues and
+        updatePortfolio streams; consumers rely on the caches converging (and
+        on the reqPositions fallback for positions).
+        """
+        self.ib.client.reqAccountUpdates(True, account)
+
     async def request_historical_data(
         self,
         contract: Contract,

@@ -383,13 +383,55 @@ class PortfolioManager:
             missing_symbols = ", ".join(
                 sorted({pos.contract.symbol for pos in missing_positions})
             )
+
+            if attempt < attempts:
+                log.warning(
+                    f"Attempt {attempt}/{attempts}: Portfolio snapshot is missing "
+                    f"{len(missing_positions)} of {len(protected_positions)} tracked "
+                    f"or tail-hedge-owned positions (symbols: {missing_symbols}). "
+                    "Waiting briefly before retrying..."
+                )
+                await asyncio.sleep(1)
+                continue
+
+            # Final attempt: reqPositions still reports holdings that never
+            # appear in the portfolio cache. This happens for secondary/linked
+            # IBKR accounts where reqAccountUpdates never delivers
+            # updatePortfolio messages, so retrying will never populate the
+            # portfolio. Fall back to building synthetic PortfolioItem objects
+            # from reqPositions data instead of aborting.
             log.warning(
                 f"Attempt {attempt}/{attempts}: Portfolio snapshot is missing "
                 f"{len(missing_positions)} of {len(protected_positions)} tracked "
                 f"or tail-hedge-owned positions (symbols: {missing_symbols}). "
-                "Waiting briefly before retrying..."
+                "Falling back to reqPositions data."
             )
-            await asyncio.sleep(1)
+            synthetic_items = [
+                PortfolioItem(
+                    contract=pos.contract,
+                    position=pos.position,
+                    marketPrice=0.0,
+                    marketValue=0.0,
+                    averageCost=pos.avgCost,
+                    unrealizedPNL=0.0,
+                    realizedPNL=0.0,
+                    account=pos.account,
+                )
+                for pos in missing_positions
+            ]
+            tracked_synthetic, untracked_synthetic = self.partition_positions(
+                synthetic_items
+            )
+            merged = self.combine_position_maps(
+                portfolio_by_symbol,
+                portfolio_positions_to_dict(tracked_synthetic),
+            )
+            if untracked_synthetic:
+                self.last_untracked_positions = self.combine_position_maps(
+                    self.last_untracked_positions,
+                    portfolio_positions_to_dict(untracked_synthetic),
+                )
+            return merged
 
         raise RuntimeError(
             "Failed to load IBKR portfolio positions after multiple attempts. "
@@ -664,10 +706,17 @@ class PortfolioManager:
     async def _refresh_account_state(
         self,
     ) -> tuple[AccountSummary, dict[str, list[PortfolioItem]]]:
-        await asyncio.wait_for(
-            self.ibkr.refresh_account(self.account_number),
-            timeout=self.config.runtime.ib_async.api_response_wait_time,
-        )
+        try:
+            await asyncio.wait_for(
+                self.ibkr.refresh_account(self.account_number),
+                timeout=self.config.runtime.ib_async.api_response_wait_time,
+            )
+        except TimeoutError:
+            # Secondary/linked IBKR accounts never send accountDownloadEnd, so
+            # the account-updates request times out even though account values
+            # are still delivered. Tolerate the timeout when account values are
+            # usable; otherwise propagate the failure.
+            self.ibkr.cached_net_liquidation(self.account_number)
         account_summary = account_summary_to_dict(
             await self.ibkr.account_summary(self.account_number)
         )
@@ -780,6 +829,11 @@ class PortfolioManager:
             if self.data_store:
                 self.data_store.record_event("run_start", {"dry_run": self.dry_run})
             self.initialize_account()
+            # Connect does not sync account updates for multi-account setups,
+            # so subscribe now without waiting (secondary accounts never send
+            # accountDownloadEnd). The portfolio load below retries until the
+            # caches converge or falls back to reqPositions.
+            self.ibkr.subscribe_account_updates(self.account_number)
             (account_summary, portfolio_positions) = await self.summarize_account()
 
             enabled_stages = set(self.run_stage_order)

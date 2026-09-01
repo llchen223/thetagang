@@ -35,6 +35,7 @@ def mock_ib(mocker):
     mock.orderStatusEvent = mocker.Mock()
     mock.orderStatusEvent.__iadd__ = mocker.Mock(return_value=None)
     mock.openTrades.return_value = []
+    mock.client = mocker.Mock()
     return mock
 
 
@@ -753,6 +754,10 @@ class TestPortfolioManager:
         pm.orders.print_summary = mocker.Mock()
 
         await pm.manage()
+
+        # Connect-time account-updates sync is skipped for multi-account
+        # setups, so manage() must start the subscription itself.
+        mock_ib.client.reqAccountUpdates.assert_called_once_with(True, "TEST123")
 
         pm.equity_engine.check_regime_rebalance_positions.assert_not_called()
         pm.equity_engine.check_buy_only_positions.assert_not_called()
@@ -1577,6 +1582,40 @@ class TestPortfolioManager:
         sleep_mock.assert_awaited_once_with(1)
         portfolio_manager.ibkr.ib.reqAccountUpdatesAsync.assert_not_called()
         portfolio_manager.ibkr.ib.reqPositionsAsync.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_initial_portfolio_load_falls_back_to_positions(
+        self, portfolio_manager, mocker
+    ):
+        """Falls back to reqPositions when the portfolio cache never populates.
+
+        This handles secondary/linked IBKR accounts where reqAccountUpdates
+        does not deliver updatePortfolio messages, so retrying never fills the
+        portfolio cache.
+        """
+        portfolio_manager.config.portfolio.symbols = {"AAPL": mocker.Mock()}
+
+        tracked_position = SimpleNamespace(
+            account="TEST123",
+            contract=SimpleNamespace(symbol="AAPL", conId=1),
+            position=5,
+            avgCost=10.0,
+        )
+
+        portfolio_manager.ibkr.portfolio = mocker.Mock(return_value=[])
+        portfolio_manager.ibkr.positions = mocker.Mock(return_value=[tracked_position])
+        mocker.patch(
+            "thetagang.portfolio_manager.asyncio.sleep", new=mocker.AsyncMock()
+        )
+
+        result = await portfolio_manager.load_initial_portfolio_positions()
+
+        assert "AAPL" in result
+        assert len(result["AAPL"]) == 1
+        assert result["AAPL"][0].position == 5
+        assert result["AAPL"][0].averageCost == 10.0
+        assert result["AAPL"][0].marketPrice == 0.0
+        assert portfolio_manager.ibkr.positions.call_count == 3
 
     def test_get_portfolio_positions_rematerializes_live_cache_only(
         self, portfolio_manager, mocker
